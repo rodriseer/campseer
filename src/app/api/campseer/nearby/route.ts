@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCachedNearby, setCachedNearby } from "@/lib/campseer/cache";
 
 const RIDB_API_KEY = process.env.RIDB_API_KEY;
+const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN ?? process.env.MAPBOX_ACCESS_TOKEN;
 
-type NearbySource = "RIDB" | "OSM";
+type NearbySource = "RIDB" | "OSM" | "MAPBOX";
 
 interface NearbyCampsite {
   name: string;
@@ -68,6 +69,18 @@ export async function GET(request: NextRequest) {
 
   // Step B: Fallback to Overpass (OSM)
   const osm = await fetchFromOverpass(lat, lng, radiusKm);
+  if (osm.campsites.length > 0) {
+    setCachedNearby(lat, lng, radiusKm, osm);
+    return NextResponse.json(osm);
+  }
+
+  // Step C: Fallback to Mapbox POI search if configured
+  if (MAPBOX_TOKEN) {
+    const mapbox = await fetchFromMapbox(lat, lng, radiusKm, MAPBOX_TOKEN);
+    setCachedNearby(lat, lng, radiusKm, mapbox);
+    return NextResponse.json(mapbox);
+  }
+
   setCachedNearby(lat, lng, radiusKm, osm);
   return NextResponse.json(osm);
 }
@@ -205,6 +218,63 @@ async function fetchFromOverpass(
     return { campsites: campsites.slice(0, 12) };
   } catch (e) {
     console.error("Overpass nearby exception:", e);
+    return { campsites: [] };
+  }
+}
+
+async function fetchFromMapbox(
+  lat: number,
+  lng: number,
+  radiusKm: number,
+  token: string
+): Promise<NearbyResponse> {
+  try {
+    const url = new URL("https://api.mapbox.com/search/geocode/v6/forward");
+    url.searchParams.set("q", "campground");
+    url.searchParams.set("proximity", `${lng},${lat}`);
+    url.searchParams.set("limit", "12");
+    url.searchParams.set("types", "poi");
+    url.searchParams.set("access_token", token);
+
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error("Mapbox nearby error:", res.status, text);
+      return { campsites: [] };
+    }
+
+    const data = (await res.json()) as {
+      type: string;
+      features?: Array<{
+        geometry?: { coordinates?: [number, number] };
+        properties?: { name?: string };
+      }>;
+    };
+
+    const features = data.features ?? [];
+    const campsites: NearbyCampsite[] = features
+      .map((f) => {
+        const coords = f.geometry?.coordinates;
+        if (!coords || coords.length < 2) return null;
+        const [flng, flat] = coords;
+        if (typeof flat !== "number" || typeof flng !== "number") return null;
+        const name = f.properties?.name?.trim() || "Unnamed campsite";
+        const distance_km = haversineKm(lat, lng, flat, flng);
+        if (distance_km > radiusKm * 1.5) return null;
+        return {
+          name,
+          lat: flat,
+          lng: flng,
+          distance_km,
+          source: "MAPBOX" as const,
+        };
+      })
+      .filter(Boolean) as NearbyCampsite[];
+
+    campsites.sort((a, b) => a.distance_km - b.distance_km);
+    return { campsites: campsites.slice(0, 12) };
+  } catch (e) {
+    console.error("Mapbox nearby exception:", e);
     return { campsites: [] };
   }
 }

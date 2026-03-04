@@ -23,7 +23,7 @@ export interface Suggestion {
   lng: number;
   type?: "place" | "campsite";
   distanceKm?: number;
-  source?: "RIDB" | "OSM";
+  source?: "RIDB" | "OSM" | "MAPBOX";
 }
 
 const DEBOUNCE_MS = 280;
@@ -289,7 +289,7 @@ export default function Hero() {
           setDropdownOpen(camps.length > 0);
           if (!camps.length) {
             setStatus("error");
-            setErrorMessage("Couldn't load campsites. Try again.");
+            setErrorMessage("No campsites found nearby. Try a different location.");
           }
         } catch {
           setStatus("error");
@@ -437,7 +437,11 @@ export default function Hero() {
                               <span className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
                                 {s.source && (
                                   <span className="rounded-full border border-zinc-600/60 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-200">
-                                    {s.source === "RIDB" ? "Recreation.gov" : "OpenStreetMap"}
+                                    {s.source === "RIDB"
+                                      ? "Recreation.gov"
+                                      : s.source === "OSM"
+                                      ? "OpenStreetMap"
+                                      : "Mapbox"}
                                   </span>
                                 )}
                                 {typeof s.distanceKm === "number"
