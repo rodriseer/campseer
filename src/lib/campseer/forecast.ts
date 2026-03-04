@@ -1,7 +1,7 @@
 import type { ForecastDay } from "./types";
 
 /** Stormglass v2 point response hour */
-interface StormglassHour {
+export interface StormglassHour {
   time: string;
   airTemperature?: Record<string, number>;
   windSpeed?: Record<string, number>;
@@ -10,7 +10,7 @@ interface StormglassHour {
   precipitation?: Record<string, number>;
 }
 
-interface StormglassResponse {
+export interface StormglassResponse {
   hours?: StormglassHour[];
   meta?: { lat: number; lng: number };
 }

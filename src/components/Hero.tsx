@@ -310,9 +310,13 @@ export default function Hero() {
                     id="suggestions-list"
                     role="listbox"
                     className="absolute left-2 right-2 top-full z-20 mt-1 max-h-56 overflow-auto rounded-lg border border-white/10 bg-black/95 py-1 shadow-xl backdrop-blur-md"
-                    initial={reduced ? false : { opacity: 0, scale: 0.98 }}
-                    animate={reduced ? false : { opacity: 1, scale: 1 }}
-                    exit={reduced ? false : { opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
+                    initial={reduced ? undefined : { opacity: 0, scale: 0.98 }}
+                    animate={reduced ? undefined : { opacity: 1, scale: 1 }}
+                    exit={
+                      reduced
+                        ? undefined
+                        : { opacity: 0, scale: 0.98, transition: { duration: 0.12 } }
+                    }
                     transition={{ duration: 0.2, ease: "easeOut" }}
                   >
                     {loadingSuggest ? (
@@ -361,9 +365,9 @@ export default function Hero() {
           <motion.section
             className="relative z-10 -mt-8 pt-0"
             aria-label="Results"
-            initial={reduced ? false : { opacity: 0, y: 24 }}
-            animate={reduced ? false : { opacity: 1, y: 0 }}
-            exit={reduced ? false : { opacity: 0, y: 12 }}
+            initial={reduced ? undefined : { opacity: 0, y: 24 }}
+            animate={reduced ? undefined : { opacity: 1, y: 0 }}
+            exit={reduced ? undefined : { opacity: 0, y: 12 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
           >
             <ResultsPanel data={result} reducedMotion={reduced} />

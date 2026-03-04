@@ -1,5 +1,5 @@
 import { getCachedForecast, setCachedForecast } from "./cache";
-import { normalizeStormglassToDays } from "./forecast";
+import { normalizeStormglassToDays, type StormglassResponse } from "./forecast";
 import { getMoonIlluminationForDate } from "./moon";
 import type { ForecastDay } from "./types";
 
@@ -38,9 +38,9 @@ export async function getForecastDays(lat: number, lng: number): Promise<Forecas
 
   if (!res.ok) return null;
 
-  const raw = (await res.json()) as { hours?: unknown[]; data?: unknown[] };
+  const raw = (await res.json()) as StormglassResponse;
   if (process.env.NODE_ENV === "development" && raw?.hours?.[0]) {
-    const firstHour = raw.hours[0] as Record<string, unknown>;
+    const firstHour = raw.hours[0] as unknown as Record<string, unknown>;
     console.log("[CampSeer] Stormglass raw response keys (first hour):", Object.keys(firstHour));
     console.log("[CampSeer] Moon-related keys:", Object.keys(firstHour).filter((k) => k.toLowerCase().includes("moon")));
   }
