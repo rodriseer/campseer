@@ -288,8 +288,7 @@ export default function Hero() {
           setSuggestions(camps);
           setDropdownOpen(camps.length > 0);
           if (!camps.length) {
-            setStatus("error");
-            setErrorMessage("No campsites found nearby. Try a different location.");
+            await fetchScores(lat, lng, `${lat.toFixed(2)}, ${lng.toFixed(2)}`);
           }
         } catch {
           setStatus("error");
@@ -314,7 +313,7 @@ export default function Hero() {
         setNearbyMessage(null);
       }
     );
-  }, []);
+  }, [fetchScores]);
 
   return (
     <>
