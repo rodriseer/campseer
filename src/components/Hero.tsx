@@ -4,6 +4,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ResultsPanel, { type ScoresResult } from "./ResultsPanel";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import NearbyMap from "./NearbyMap";
 
 const HERO_IMAGES = [
   "/campseer/camping-one.jpg",
@@ -63,8 +64,17 @@ export default function Hero() {
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
+  const [loadingNearby, setLoadingNearby] = useState(false);
+  const [nearbyMessage, setNearbyMessage] = useState<string | null>(null);
+  const [nearbyUserLocation, setNearbyUserLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [nearbyCampsites, setNearbyCampsites] = useState<Suggestion[]>([]);
+  const [selectedCampsiteId, setSelectedCampsiteId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const nearbySlowTimerRef = useRef<number | null>(null);
 
   const fetchScores = useCallback(async (lat: number, lng: number, locationName: string) => {
     setStatus("loading");
@@ -175,6 +185,11 @@ export default function Hero() {
       setQuery(s.name);
       setDropdownOpen(false);
       setSuggestions([]);
+       if (s.type === "campsite") {
+        setSelectedCampsiteId(s.id);
+      } else {
+        setSelectedCampsiteId(null);
+      }
       if (options?.autoRun) {
         await fetchScores(s.lat, s.lng, s.name);
       }
@@ -234,7 +249,14 @@ export default function Hero() {
     }
     setErrorMessage("");
     setDropdownOpen(false);
-    setLoadingSuggest(true);
+    setLoadingNearby(true);
+    setNearbyMessage("Searching within 50 km...");
+    if (nearbySlowTimerRef.current) {
+      window.clearTimeout(nearbySlowTimerRef.current);
+    }
+    nearbySlowTimerRef.current = window.setTimeout(() => {
+      setNearbyMessage("Still searching… (this can take a few seconds)");
+    }, 3000);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = pos.coords.latitude;
@@ -261,23 +283,35 @@ export default function Hero() {
             distanceKm: c.distance_km,
             source: c.source,
           }));
+          setNearbyUserLocation({ lat, lng });
+          setNearbyCampsites(camps);
           setSuggestions(camps);
           setDropdownOpen(camps.length > 0);
           if (!camps.length) {
             setStatus("error");
-            setErrorMessage("No campsites found nearby.");
+            setErrorMessage("Couldn't load campsites. Try again.");
           }
         } catch {
           setStatus("error");
-          setErrorMessage("Couldn't find campsites nearby, try again.");
+          setErrorMessage("Couldn't load campsites. Try again.");
         } finally {
-          setLoadingSuggest(false);
+          if (nearbySlowTimerRef.current) {
+            window.clearTimeout(nearbySlowTimerRef.current);
+            nearbySlowTimerRef.current = null;
+          }
+          setLoadingNearby(false);
+          setNearbyMessage(null);
         }
       },
       () => {
-        setLoadingSuggest(false);
         setStatus("error");
         setErrorMessage("Couldn't get your location. Check permissions.");
+        if (nearbySlowTimerRef.current) {
+          window.clearTimeout(nearbySlowTimerRef.current);
+          nearbySlowTimerRef.current = null;
+        }
+        setLoadingNearby(false);
+        setNearbyMessage(null);
       }
     );
   }, []);
@@ -419,6 +453,9 @@ export default function Hero() {
                   )}
                 </AnimatePresence>
               </div>
+              {loadingNearby && nearbyMessage && (
+                <p className="mt-2 text-xs text-zinc-200">{nearbyMessage}</p>
+              )}
               <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
                 <motion.button
                   type="button"
@@ -434,13 +471,20 @@ export default function Hero() {
                 <motion.button
                   type="button"
                   onClick={handleFindCampsitesNearMe}
-                  disabled={status === "loading"}
+                  disabled={status === "loading" || loadingNearby}
                   className="min-h-[40px] rounded-full border border-white/40 bg-black/30 px-4 text-xs font-medium uppercase tracking-wide text-white/90 shadow-sm backdrop-blur-md hover:bg-white/10 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-transparent"
                   whileHover={status !== "loading" ? buttonHover(reduced) : undefined}
                   whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
                   transition={{ duration: 0.2 }}
                 >
-                  Find campsites near me
+                  {loadingNearby ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
+                      <span>Finding campsites…</span>
+                    </span>
+                  ) : (
+                    "Find campsites near me"
+                  )}
                 </motion.button>
               </div>
             </motion.form>
@@ -449,6 +493,19 @@ export default function Hero() {
               <p className="mt-4 text-sm text-amber-200" role="alert">
                 {errorMessage}
               </p>
+            )}
+            {nearbyCampsites.length > 0 && nearbyUserLocation && (
+              <NearbyMap
+                userLocation={nearbyUserLocation}
+                campsites={nearbyCampsites}
+                selectedId={selectedCampsiteId}
+                onSelect={(id) => {
+                  const campsite = nearbyCampsites.find((c) => c.id === id);
+                  if (campsite) {
+                    handleSuggestionSelect(campsite, { autoRun: true });
+                  }
+                }}
+              />
             )}
           </div>
         </div>
