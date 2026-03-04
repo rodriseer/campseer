@@ -4,7 +4,6 @@ import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ResultsPanel, { type ScoresResult } from "./ResultsPanel";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
-import NearbyMap from "./NearbyMap";
 
 const HERO_IMAGES = [
   "/campseer/camping-one.jpg",
@@ -21,9 +20,6 @@ export interface Suggestion {
   name: string;
   lat: number;
   lng: number;
-  type?: "place" | "campsite";
-  distanceKm?: number;
-  source?: "RIDB" | "OSM" | "MAPBOX";
 }
 
 const DEBOUNCE_MS = 280;
@@ -64,17 +60,8 @@ export default function Hero() {
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
-  const [loadingNearby, setLoadingNearby] = useState(false);
-  const [nearbyMessage, setNearbyMessage] = useState<string | null>(null);
-  const [nearbyUserLocation, setNearbyUserLocation] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
-  const [nearbyCampsites, setNearbyCampsites] = useState<Suggestion[]>([]);
-  const [selectedCampsiteId, setSelectedCampsiteId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const nearbySlowTimerRef = useRef<number | null>(null);
 
   const fetchScores = useCallback(async (lat: number, lng: number, locationName: string) => {
     setStatus("loading");
@@ -179,23 +166,12 @@ export default function Hero() {
     [query, selectedSuggestion, fetchScores]
   );
 
-  const handleSuggestionSelect = useCallback(
-    async (s: Suggestion, options?: { autoRun?: boolean }) => {
-      setSelectedSuggestion(s);
-      setQuery(s.name);
-      setDropdownOpen(false);
-      setSuggestions([]);
-       if (s.type === "campsite") {
-        setSelectedCampsiteId(s.id);
-      } else {
-        setSelectedCampsiteId(null);
-      }
-      if (options?.autoRun) {
-        await fetchScores(s.lat, s.lng, s.name);
-      }
-    },
-    [fetchScores]
-  );
+  const handleSuggestionSelect = useCallback((s: Suggestion) => {
+    setSelectedSuggestion(s);
+    setQuery(s.name);
+    setDropdownOpen(false);
+    setSuggestions([]);
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -203,7 +179,8 @@ export default function Hero() {
       if (suggestions.length > 0) {
         e.preventDefault();
         const first = suggestions[0];
-        handleSuggestionSelect(first, { autoRun: true });
+        handleSuggestionSelect(first);
+        fetchScores(first.lat, first.lng, first.name);
       }
     },
     [suggestions, handleSuggestionSelect, fetchScores]
@@ -237,80 +214,6 @@ export default function Hero() {
       () => {
         setStatus("error");
         setErrorMessage("Couldn't get your location. Check permissions.");
-      }
-    );
-  }, [fetchScores]);
-
-  const handleFindCampsitesNearMe = useCallback(() => {
-    if (!navigator.geolocation) {
-      setStatus("error");
-      setErrorMessage("Geolocation is not supported.");
-      return;
-    }
-    setErrorMessage("");
-    setDropdownOpen(false);
-    setLoadingNearby(true);
-    setNearbyMessage("Searching within 50 km...");
-    if (nearbySlowTimerRef.current) {
-      window.clearTimeout(nearbySlowTimerRef.current);
-    }
-    nearbySlowTimerRef.current = window.setTimeout(() => {
-      setNearbyMessage("Still searching… (this can take a few seconds)");
-    }, 3000);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        try {
-          const res = await fetch(
-            `/api/campseer/nearby?lat=${lat}&lng=${lng}&radiusKm=50`
-          );
-          const data = (await res.json()) as {
-            campsites?: Array<{
-              name: string;
-              lat: number;
-              lng: number;
-              distance_km?: number;
-              source?: "RIDB" | "OSM";
-            }>;
-          };
-          const camps = (data.campsites ?? []).map((c) => ({
-            id: `${c.lat}-${c.lng}-${c.name.slice(0, 30)}`,
-            name: c.name,
-            lat: c.lat,
-            lng: c.lng,
-            type: "campsite" as const,
-            distanceKm: c.distance_km,
-            source: c.source,
-          }));
-          setNearbyUserLocation({ lat, lng });
-          setNearbyCampsites(camps);
-          setSuggestions(camps);
-          setDropdownOpen(camps.length > 0);
-          if (!camps.length) {
-            await fetchScores(lat, lng, `${lat.toFixed(2)}, ${lng.toFixed(2)}`);
-          }
-        } catch {
-          setStatus("error");
-          setErrorMessage("Couldn't load campsites. Try again.");
-        } finally {
-          if (nearbySlowTimerRef.current) {
-            window.clearTimeout(nearbySlowTimerRef.current);
-            nearbySlowTimerRef.current = null;
-          }
-          setLoadingNearby(false);
-          setNearbyMessage(null);
-        }
-      },
-      () => {
-        setStatus("error");
-        setErrorMessage("Couldn't get your location. Check permissions.");
-        if (nearbySlowTimerRef.current) {
-          window.clearTimeout(nearbySlowTimerRef.current);
-          nearbySlowTimerRef.current = null;
-        }
-        setLoadingNearby(false);
-        setNearbyMessage(null);
       }
     );
   }, [fetchScores]);
@@ -368,147 +271,90 @@ export default function Hero() {
               className="mx-auto mt-8 max-w-md"
               {...formAnim(reduced)}
             >
-              <div ref={wrapperRef} className="relative">
-                <div className="flex flex-col gap-2 rounded-xl border border-zinc-400/40 bg-white/95 p-2 shadow-lg backdrop-blur-sm sm:flex-row sm:items-center">
-                  <input
-                    id="search-input"
-                    type="search"
-                    value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
-                      setSelectedSuggestion(null);
-                    }}
-                    onKeyDown={handleKeyDown}
-                    onFocus={() => suggestions.length > 0 && setDropdownOpen(true)}
-                    placeholder="Enter location"
-                    aria-label="Enter location"
-                    aria-autocomplete="list"
-                    aria-expanded={dropdownOpen}
-                    aria-controls="suggestions-list"
-                    className="min-h-[44px] flex-1 rounded-lg border border-zinc-300 bg-white px-4 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-300"
-                    disabled={status === "loading"}
-                  />
-                  <motion.button
-                    type="submit"
-                    disabled={status === "loading"}
-                    className="min-h-[44px] rounded-lg bg-brand-accent px-4 font-medium text-white transition-opacity disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-brand-accent focus:ring-offset-2 focus:ring-offset-brand-bg"
-                    whileHover={status !== "loading" ? buttonHover(reduced) : undefined}
-                    whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
-                    transition={{ duration: 0.2 }}
-                  >
-                    {status === "loading" ? "Loading…" : "Get CampScore"}
-                  </motion.button>
-                </div>
-
-                <AnimatePresence>
-                  {dropdownOpen && (suggestions.length > 0 || loadingSuggest) && (
-                    <motion.ul
-                      key="suggestions-dropdown"
-                      id="suggestions-list"
-                      role="listbox"
-                      className="absolute left-2 right-2 top-full z-20 mt-1 max-h-56 overflow-auto rounded-lg border border-white/10 bg-black/95 py-1 shadow-xl backdrop-blur-md"
-                      initial={reduced ? undefined : { opacity: 0, scale: 0.98 }}
-                      animate={reduced ? undefined : { opacity: 1, scale: 1 }}
-                      exit={
-                        reduced
-                          ? undefined
-                          : { opacity: 0, scale: 0.98, transition: { duration: 0.12 } }
-                      }
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                    >
-                      {loadingSuggest ? (
-                        <li className="px-4 py-3 text-sm text-zinc-400">Loading…</li>
-                      ) : (
-                      suggestions.map((s) => (
-                        <li key={s.id} role="option">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleSuggestionSelect(
-                                s,
-                                s.type === "campsite" ? { autoRun: true } : undefined
-                              )
-                            }
-                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10 focus:bg-white/10 focus:outline-none"
-                          >
-                            <span className="block">{s.name}</span>
-                            {s.type === "campsite" && (s.distanceKm || s.source) && (
-                              <span className="mt-0.5 flex items-center gap-2 text-xs text-zinc-400">
-                                {s.source && (
-                                  <span className="rounded-full border border-zinc-600/60 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-200">
-                                    {s.source === "RIDB"
-                                      ? "Recreation.gov"
-                                      : s.source === "OSM"
-                                      ? "OpenStreetMap"
-                                      : "Mapbox"}
-                                  </span>
-                                )}
-                                {typeof s.distanceKm === "number"
-                                  ? `${s.distanceKm.toFixed(1)} km away`
-                                  : null}
-                              </span>
-                            )}
-                          </button>
-                        </li>
-                      ))
-                      )}
-                    </motion.ul>
-                  )}
-                </AnimatePresence>
-              </div>
-              {loadingNearby && nearbyMessage && (
-                <p className="mt-2 text-xs text-zinc-200">{nearbyMessage}</p>
-              )}
-              <div className="mt-3 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
-                <motion.button
-                  type="button"
-                  onClick={handleUseLocation}
+            <div ref={wrapperRef} className="relative">
+              <div className="flex flex-col gap-2 rounded-xl border border-zinc-400/40 bg-white/95 p-2 shadow-lg backdrop-blur-sm sm:flex-row sm:items-center">
+                <input
+                  id="search-input"
+                  type="search"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setSelectedSuggestion(null);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => suggestions.length > 0 && setDropdownOpen(true)}
+                  placeholder="Enter location"
+                  aria-label="Enter location"
+                  aria-autocomplete="list"
+                  aria-expanded={dropdownOpen}
+                  aria-controls="suggestions-list"
+                  className="min-h-[44px] flex-1 rounded-lg border border-zinc-300 bg-white px-4 text-zinc-900 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-300"
                   disabled={status === "loading"}
-                  className="min-h-[40px] text-sm text-white underline underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)] hover:text-zinc-200 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:ring-offset-2 focus:ring-offset-transparent"
-                  whileHover={status !== "loading" ? { opacity: 1 } : undefined}
-                  whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
-                  transition={{ duration: 0.2 }}
-                >
-                  Use my location
-                </motion.button>
+                />
                 <motion.button
-                  type="button"
-                  onClick={handleFindCampsitesNearMe}
-                  disabled={status === "loading" || loadingNearby}
-                  className="min-h-[40px] rounded-full border border-white/40 bg-black/30 px-4 text-xs font-medium uppercase tracking-wide text-white/90 shadow-sm backdrop-blur-md hover:bg-white/10 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-transparent"
+                  type="submit"
+                  disabled={status === "loading"}
+                  className="min-h-[44px] rounded-lg bg-brand-accent px-4 font-medium text-white transition-opacity disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-brand-accent focus:ring-offset-2 focus:ring-offset-brand-bg"
                   whileHover={status !== "loading" ? buttonHover(reduced) : undefined}
                   whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
                   transition={{ duration: 0.2 }}
                 >
-                  {loadingNearby ? (
-                    <span className="flex items-center gap-2">
-                      <span className="h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
-                      <span>Finding campsites…</span>
-                    </span>
-                  ) : (
-                    "Find campsites near me"
-                  )}
+                  {status === "loading" ? "Loading…" : "Get CampScore"}
                 </motion.button>
               </div>
+
+              <AnimatePresence>
+                {dropdownOpen && (suggestions.length > 0 || loadingSuggest) && (
+                  <motion.ul
+                    key="suggestions-dropdown"
+                    id="suggestions-list"
+                    role="listbox"
+                    className="absolute left-2 right-2 top-full z-20 mt-1 max-h-56 overflow-auto rounded-lg border border-white/10 bg-black/95 py-1 shadow-xl backdrop-blur-md"
+                    initial={reduced ? undefined : { opacity: 0, scale: 0.98 }}
+                    animate={reduced ? undefined : { opacity: 1, scale: 1 }}
+                    exit={
+                      reduced
+                        ? undefined
+                        : { opacity: 0, scale: 0.98, transition: { duration: 0.12 } }
+                    }
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                  >
+                    {loadingSuggest ? (
+                      <li className="px-4 py-3 text-sm text-zinc-400">Loading…</li>
+                    ) : (
+                      suggestions.map((s) => (
+                        <li key={s.id} role="option">
+                          <button
+                            type="button"
+                            onClick={() => handleSuggestionSelect(s)}
+                            className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+                          >
+                            {s.name}
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </motion.ul>
+                )}
+              </AnimatePresence>
+            </div>
+            <motion.button
+              type="button"
+              onClick={handleUseLocation}
+              disabled={status === "loading"}
+              className="mt-3 min-h-[44px] text-sm text-white underline underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)] hover:text-zinc-200 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:ring-offset-2 focus:ring-offset-transparent"
+              whileHover={status !== "loading" ? { opacity: 1 } : undefined}
+              whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
+              transition={{ duration: 0.2 }}
+            >
+              Use my location
+            </motion.button>
             </motion.form>
 
             {status === "error" && (
               <p className="mt-4 text-sm text-amber-200" role="alert">
                 {errorMessage}
               </p>
-            )}
-            {nearbyCampsites.length > 0 && nearbyUserLocation && (
-              <NearbyMap
-                userLocation={nearbyUserLocation}
-                campsites={nearbyCampsites}
-                selectedId={selectedCampsiteId}
-                onSelect={(id) => {
-                  const campsite = nearbyCampsites.find((c) => c.id === id);
-                  if (campsite) {
-                    handleSuggestionSelect(campsite, { autoRun: true });
-                  }
-                }}
-              />
             )}
           </div>
         </div>
