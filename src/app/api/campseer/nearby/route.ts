@@ -53,34 +53,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(cached, { headers: { "x-campseer-cache": "nearby" } });
   }
 
-  if (!RIDB_API_KEY) {
-    // If RIDB is not configured, skip straight to OSM fallback.
-    const osm = await fetchFromOverpass(lat, lng, radiusKm);
-    setCachedNearby(lat, lng, radiusKm, osm);
-    return NextResponse.json(osm);
-  }
-
-  // Step A: RIDB primary
-  const ridb = await fetchFromRidb(lat, lng, radiusKm, RIDB_API_KEY);
-  if (ridb.campsites.length > 0) {
-    setCachedNearby(lat, lng, radiusKm, ridb);
-    return NextResponse.json(ridb);
-  }
-
-  // Step B: Fallback to Overpass (OSM)
-  const osm = await fetchFromOverpass(lat, lng, radiusKm);
-  if (osm.campsites.length > 0) {
-    setCachedNearby(lat, lng, radiusKm, osm);
-    return NextResponse.json(osm);
-  }
-
-  // Step C: Fallback to Mapbox POI search if configured
+  // Step A: Mapbox POI search (works globally and doesn't require RIDB)
   if (MAPBOX_TOKEN) {
     const mapbox = await fetchFromMapbox(lat, lng, radiusKm, MAPBOX_TOKEN);
-    setCachedNearby(lat, lng, radiusKm, mapbox);
-    return NextResponse.json(mapbox);
+    if (mapbox.campsites.length > 0) {
+      setCachedNearby(lat, lng, radiusKm, mapbox);
+      return NextResponse.json(mapbox);
+    }
   }
 
+  // Step B: RIDB (if configured)
+  if (RIDB_API_KEY) {
+    const ridb = await fetchFromRidb(lat, lng, radiusKm, RIDB_API_KEY);
+    if (ridb.campsites.length > 0) {
+      setCachedNearby(lat, lng, radiusKm, ridb);
+      return NextResponse.json(ridb);
+    }
+  }
+
+  // Step C: Overpass (OSM) fallback
+  const osm = await fetchFromOverpass(lat, lng, radiusKm);
   setCachedNearby(lat, lng, radiusKm, osm);
   return NextResponse.json(osm);
 }
@@ -260,7 +252,8 @@ async function fetchFromMapbox(
         if (typeof flat !== "number" || typeof flng !== "number") return null;
         const name = f.properties?.name?.trim() || "Unnamed campsite";
         const distance_km = haversineKm(lat, lng, flat, flng);
-        if (distance_km > radiusKm * 1.5) return null;
+        // Allow Mapbox to return slightly farther results; cap at ~3x requested radius.
+        if (distance_km > radiusKm * 3) return null;
         return {
           name,
           lat: flat,
