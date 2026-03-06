@@ -3,6 +3,9 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ResultsPanel, { type ScoresResult } from "./ResultsPanel";
+import NearbyCampgroundsPanel, {
+  type NearbyCampground,
+} from "./NearbyCampgroundsPanel";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 const HERO_IMAGES = [
@@ -60,6 +63,8 @@ export default function Hero() {
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
+  const [nearbyCampgrounds, setNearbyCampgrounds] =
+    useState<NearbyCampground[] | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -67,6 +72,7 @@ export default function Hero() {
     setStatus("loading");
     setErrorMessage("");
     setDropdownOpen(false);
+    setNearbyCampgrounds(null);
     try {
       const res = await fetch(`/api/campseer/scores?lat=${lat}&lng=${lng}`);
       const data = await res.json();
@@ -218,6 +224,57 @@ export default function Hero() {
     );
   }, [fetchScores]);
 
+  const handleFindNearby = useCallback(() => {
+    if (!navigator.geolocation) {
+      setStatus("error");
+      setErrorMessage("Geolocation is not supported.");
+      return;
+    }
+    setStatus("loading");
+    setErrorMessage("");
+    setDropdownOpen(false);
+    setNearbyCampgrounds(null);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          const res = await fetch(
+            `/api/campseer/nearby?lat=${lat}&lng=${lng}&radiusKm=25`
+          );
+          const data = await res.json();
+          if (!res.ok) {
+            setStatus("error");
+            setErrorMessage(data?.error || "Couldn't find nearby campgrounds.");
+            return;
+          }
+          const list = data?.campgrounds ?? [];
+          if (list.length === 0) {
+            setStatus("error");
+            setErrorMessage("No campgrounds found within 25 km.");
+            return;
+          }
+          setNearbyCampgrounds(list);
+          setStatus("success");
+        } catch {
+          setStatus("error");
+          setErrorMessage("Couldn't find nearby campgrounds. Try again.");
+        }
+      },
+      () => {
+        setStatus("error");
+        setErrorMessage("Couldn't get your location. Check permissions.");
+      }
+    );
+  }, []);
+
+  const handleSelectCampground = useCallback(
+    (cg: NearbyCampground) => {
+      fetchScores(cg.lat, cg.lng, cg.name);
+    },
+    [fetchScores]
+  );
+
   return (
     <>
       <section
@@ -338,17 +395,30 @@ export default function Hero() {
                 )}
               </AnimatePresence>
             </div>
-            <motion.button
-              type="button"
-              onClick={handleUseLocation}
-              disabled={status === "loading"}
-              className="mt-3 min-h-[44px] text-sm text-white underline underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)] hover:text-zinc-200 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:ring-offset-2 focus:ring-offset-transparent"
-              whileHover={status !== "loading" ? { opacity: 1 } : undefined}
-              whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
-              transition={{ duration: 0.2 }}
-            >
-              Use my location
-            </motion.button>
+            <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1">
+              <motion.button
+                type="button"
+                onClick={handleUseLocation}
+                disabled={status === "loading"}
+                className="min-h-[44px] text-sm text-white underline underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)] hover:text-zinc-200 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:ring-offset-2 focus:ring-offset-transparent"
+                whileHover={status !== "loading" ? { opacity: 1 } : undefined}
+                whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
+                transition={{ duration: 0.2 }}
+              >
+                Use my location
+              </motion.button>
+              <motion.button
+                type="button"
+                onClick={handleFindNearby}
+                disabled={status === "loading"}
+                className="min-h-[44px] text-sm text-white underline underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)] hover:text-zinc-200 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-white/30 focus:ring-offset-2 focus:ring-offset-transparent"
+                whileHover={status !== "loading" ? { opacity: 1 } : undefined}
+                whileTap={status !== "loading" ? buttonTap(reduced) : undefined}
+                transition={{ duration: 0.2 }}
+              >
+                Find campgrounds near me
+              </motion.button>
+            </div>
             </motion.form>
 
             {status === "error" && (
@@ -361,7 +431,23 @@ export default function Hero() {
       </section>
 
       <AnimatePresence>
-        {status === "success" && result && (
+        {status === "success" && nearbyCampgrounds && (
+          <motion.section
+            className="relative z-10 -mt-8 pt-0"
+            aria-label="Nearby campgrounds"
+            initial={reduced ? undefined : { opacity: 0, y: 24 }}
+            animate={reduced ? undefined : { opacity: 1, y: 0 }}
+            exit={reduced ? undefined : { opacity: 0, y: 12 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+          >
+            <NearbyCampgroundsPanel
+              campgrounds={nearbyCampgrounds}
+              onSelectCampground={handleSelectCampground}
+              reducedMotion={reduced}
+            />
+          </motion.section>
+        )}
+        {status === "success" && result && !nearbyCampgrounds && (
           <motion.section
             className="relative z-10 -mt-8 pt-0"
             aria-label="Results"
